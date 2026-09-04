@@ -41,17 +41,18 @@ class Report(BaseModel):
     """
     The shape of the message an agent sends us.
 
-    task_category is either "on-task" or "off-task: <keyword>" - the agent
-    works this out for itself by checking the browser's window title against
-    its own watch_sites list. That raw window title is never part of this
-    message and never reaches this server.
+    site_name is the SITE NAME only (e.g. "YouTube", "ChatGPT", "Gmail") when
+    the foreground app is a browser, or "" otherwise. The agent works this out
+    for itself from the browser's window title; that full window title is
+    never part of this message and never reaches this server - only the short
+    site name, if one could be safely extracted.
     """
     lab_id: str
     computer_name: str
     watch_process: str
     watch_process_running: bool
     foreground_app: str
-    task_category: str = "on-task"
+    site_name: str = ""
 
 
 @app.post("/report")
@@ -63,7 +64,7 @@ def report(report: Report):
         "watch_process": report.watch_process,
         "watch_process_running": report.watch_process_running,
         "foreground_app": report.foreground_app,
-        "task_category": report.task_category,
+        "site_name": report.site_name,
         "last_seen": datetime.now(),
     }
     return {"ok": True}
@@ -116,7 +117,7 @@ def data(lab_id: str = ""):
             "status": status,
             "watch_process": computer["watch_process"],
             "foreground_app": computer["foreground_app"],
-            "task_category": computer["task_category"],
+            "site_name": computer.get("site_name", ""),
             "last_seen": computer["last_seen"].strftime("%H:%M:%S"),
             "seconds_ago": int(seconds_ago),
         })
