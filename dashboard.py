@@ -5,9 +5,11 @@ Every lab computer, from every lab, reports to this one server. Each report
 carries a lab_id, which we use to LABEL the computer and to filter the page
 by lab - not to reject anything.
 
-Storage is a plain Python dictionary in memory. No database: the agents
-re-report every 5 seconds, so if this server restarts it fills itself back
-up within seconds on its own.
+Storage is plain Python dictionaries in memory - no database. The agents
+re-report every 5 seconds, so the live view fills itself back up within
+seconds of a restart. The activity history (the last 25 things each
+computer used, with times) is kept the same way, and IS lost if this
+server restarts - keeping it permanently would need a real database.
 
 Four endpoints:
     POST /report   an agent sends its status here
@@ -31,10 +33,15 @@ OFFLINE_AFTER_SECONDS = 30
 
 app = FastAPI()
 
-# ALL our storage: a plain dictionary in memory.
-# The key is (lab_id, computer_name) - both together, so two different labs
-# can each have a computer called "PC-01" without overwriting each other.
-computers = {}
+# ALL our storage: two plain dictionaries in memory.
+# The key in both is (lab_id, computer_name) - both together, so two different
+# labs can each have a computer called "PC-01" without overwriting each other.
+computers = {}      # the latest report from each computer
+history = {}        # what each computer has used, oldest first
+
+# How many past entries to keep per computer. Old ones drop off the front, so
+# memory can never grow without limit no matter how long this runs.
+MAX_HISTORY = 25
 
 
 class Report(BaseModel):
@@ -58,15 +65,36 @@ class Report(BaseModel):
 @app.post("/report")
 def report(report: Report):
     """An agent reports its status here. Every lab is welcome."""
-    computers[(report.lab_id, report.computer_name)] = {
+    now = datetime.now()
+    key = (report.lab_id, report.computer_name)
+
+    computers[key] = {
         "lab_id": report.lab_id,
         "computer_name": report.computer_name,
         "watch_process": report.watch_process,
         "watch_process_running": report.watch_process_running,
         "foreground_app": report.foreground_app,
         "site_name": report.site_name,
-        "last_seen": datetime.now(),
+        "last_seen": now,
     }
+
+    # Keep a history of what this computer has used. Agents report every 5
+    # seconds, so we do NOT add an entry every time - we only start a new one
+    # when what they are using actually changes. While it stays the same we
+    # just push that entry's end time forward, which is what gives us "how
+    # long they were on it".
+    what = report.foreground_app
+    if report.site_name:
+        what += " - " + report.site_name
+
+    entries = history.setdefault(key, [])
+    if entries and entries[-1]["what"] == what:
+        entries[-1]["until"] = now
+    else:
+        entries.append({"what": what, "since": now, "until": now})
+        if len(entries) > MAX_HISTORY:
+            entries.pop(0)              # drop the oldest
+
     return {"ok": True}
 
 
@@ -111,6 +139,19 @@ def data(lab_id: str = ""):
         else:
             status = "Online"                       # reporting, program not open
 
+        # What this computer has used, newest first, with how long each was
+        # in front. Times are sent as full timestamps rather than "17:36:58",
+        # so the page can show them in the timezone of whoever is looking -
+        # this server's own clock is UTC, which would confuse everyone.
+        key = (computer["lab_id"], computer["computer_name"])
+        entries = []
+        for entry in reversed(history.get(key, [])):
+            entries.append({
+                "what": entry["what"],
+                "since": entry["since"].isoformat(),
+                "seconds": int((entry["until"] - entry["since"]).total_seconds()),
+            })
+
         result.append({
             "lab_id": computer["lab_id"],
             "computer_name": computer["computer_name"],
@@ -119,8 +160,9 @@ def data(lab_id: str = ""):
             "watch_process_running": computer["watch_process_running"],
             "foreground_app": computer["foreground_app"],
             "site_name": computer.get("site_name", ""),
-            "last_seen": computer["last_seen"].strftime("%H:%M:%S"),
+            "last_seen": computer["last_seen"].isoformat(),
             "seconds_ago": int(seconds_ago),
+            "history": entries,
         })
 
     result.sort(key=lambda c: (c["lab_id"], c["computer_name"]))

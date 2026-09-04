@@ -54,6 +54,19 @@
     .line { font-size: 15px; color: #3c4757; margin-top: 6px; }
     .site-name { color: #7b3ff2; font-weight: bold; }
 
+    /* The activity history list. <details> gives us open/close for free,
+       with no JavaScript at all. */
+    .history { margin-top: 12px; border-top: 1px solid #e6eaf0; padding-top: 8px; }
+    .history summary {
+      cursor: pointer; font-size: 14px; color: #5a6675; user-select: none;
+    }
+    .history-row {
+      display: flex; gap: 8px; align-items: baseline;
+      font-size: 13px; color: #3c4757; margin-top: 6px;
+    }
+    .history-time { color: #8a94a3; white-space: nowrap; }
+    .history-long { margin-left: auto; color: #8a94a3; white-space: nowrap; }
+
     .in-use  { border-left-color: #1e8e3e; }
     .in-use  .status { color: #1e8e3e; }
     .online  { border-left-color: #1a73e8; }
@@ -100,6 +113,45 @@
       return "offline";
     }
 
+    // The server sends full timestamps and works in UTC. Turning them into
+    // text HERE means every time on the page is in the timezone of whoever
+    // is looking at it.
+    function clockTime(isoText) {
+      return new Date(isoText).toLocaleTimeString();
+    }
+
+    // 45 -> "45s", 90 -> "1m", 3700 -> "1h 1m"
+    function howLong(seconds) {
+      if (seconds < 60) { return seconds + "s"; }
+      var minutes = Math.floor(seconds / 60);
+      if (minutes < 60) { return minutes + "m"; }
+      return Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
+    }
+
+    // Which computers have their history list open. The page redraws every
+    // few seconds, so without remembering this, an open list would snap shut
+    // under you every time.
+    var openHistory = {};
+
+    function historyHtml(key, entries) {
+      if (!entries || entries.length === 0) { return ""; }
+
+      var rows = "";
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        rows += '<div class="history-row">' +
+                  '<span class="history-time">' + clockTime(e.since) + '</span>' +
+                  '<span>' + e.what + '</span>' +
+                  '<span class="history-long">' + howLong(e.seconds) + '</span>' +
+                '</div>';
+      }
+      return '<details class="history" data-key="' + key + '"' +
+                (openHistory[key] ? ' open' : '') + '>' +
+               '<summary>&#128220; Activity history (' + entries.length + ')</summary>' +
+               rows +
+             '</details>';
+    }
+
     function draw(data) {
       var computers = data.computers;
       var inUse = 0, online = 0, offline = 0;
@@ -122,8 +174,9 @@
         }
         html += '  <div class="line">&#128190; ' + c.watch_process + ': ' +
                      (c.watch_process_running ? "running" : "not running") + '</div>';
-        html += '  <div class="line">&#128337; Last report: ' + c.last_seen +
+        html += '  <div class="line">&#128337; Last report: ' + clockTime(c.last_seen) +
                      ' (' + c.seconds_ago + 's ago)</div>';
+        html += historyHtml(c.lab_id + "/" + c.computer_name, c.history);
         html += '</div>';
       }
 
@@ -137,6 +190,15 @@
         computers.length + " computer(s) - " +
         inUse + " in use, " + online + " online, " + offline + " offline";
       document.getElementById("cards").innerHTML = html;
+
+      // Remember which history lists the viewer has opened, so the next
+      // redraw a few seconds from now leaves them open.
+      var lists = document.querySelectorAll("details.history");
+      for (var j = 0; j < lists.length; j++) {
+        lists[j].addEventListener("toggle", function () {
+          openHistory[this.getAttribute("data-key")] = this.open;
+        });
+      }
     }
 
     function refreshData() {
