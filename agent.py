@@ -210,10 +210,17 @@ def get_site_name(app_name, window_title):
 
     site = window_title.rsplit(" - ", 1)[-1].strip()
 
+    # Names the browser itself adds to every one of its windows (a New Tab
+    # page, an empty window, a private window) - not a real site name.
+    browser_labels = ["google chrome", "chrome", "microsoft edge", "msedge",
+                       "mozilla firefox", "firefox", "new tab"]
+
     # Safety checks - if any of these fail, show nothing rather than guess.
     if not site or len(site) > MAX_SITE_NAME_LENGTH:
         return ""
     if "@" in site:                 # looks like an email address slipped in
+        return ""
+    if site.lower() in browser_labels:
         return ""
 
     return site
