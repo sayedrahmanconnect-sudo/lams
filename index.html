@@ -52,6 +52,7 @@
        so it still reads clearly on a projector. */
     .status { font-size: 19px; font-weight: bold; margin-bottom: 10px; }
     .line { font-size: 15px; color: #3c4757; margin-top: 6px; }
+    .off-task { color: #c5221f; font-weight: bold; }
 
     .in-use  { border-left-color: #1e8e3e; }
     .in-use  .status { color: #1e8e3e; }
@@ -118,6 +119,9 @@
         html += '  <div class="line">&#128241; Using: ' + c.foreground_app + '</div>';
         html += '  <div class="line">&#128190; ' + c.watch_process + ': ' +
                      (c.watch_process_running ? "running" : "not running") + '</div>';
+        if (c.task_category && c.task_category !== "on-task") {
+          html += '  <div class="line off-task">&#128721; ' + c.task_category + '</div>';
+        }
         html += '  <div class="line">&#128337; Last report: ' + c.last_seen +
                      ' (' + c.seconds_ago + 's ago)</div>';
         html += '</div>';

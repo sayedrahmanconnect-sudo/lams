@@ -1,6 +1,7 @@
 {
-  "dashboard_url": "http://192.168.0.50:8000",
+  "dashboard_url": "https://lams-dashboard-pvc4.onrender.com",
   "lab_id": "comilla-cse-lab",
   "computer_name": "PC-01",
-  "watch_process": "chrome.exe"
+  "watch_process": "chrome.exe",
+  "watch_sites": ["youtube", "netflix", "facebook"]
 }

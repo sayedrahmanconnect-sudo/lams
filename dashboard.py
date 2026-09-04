@@ -38,12 +38,20 @@ computers = {}
 
 
 class Report(BaseModel):
-    """The shape of the message an agent sends us."""
+    """
+    The shape of the message an agent sends us.
+
+    task_category is either "on-task" or "off-task: <keyword>" - the agent
+    works this out for itself by checking the browser's window title against
+    its own watch_sites list. That raw window title is never part of this
+    message and never reaches this server.
+    """
     lab_id: str
     computer_name: str
     watch_process: str
     watch_process_running: bool
     foreground_app: str
+    task_category: str = "on-task"
 
 
 @app.post("/report")
@@ -55,6 +63,7 @@ def report(report: Report):
         "watch_process": report.watch_process,
         "watch_process_running": report.watch_process_running,
         "foreground_app": report.foreground_app,
+        "task_category": report.task_category,
         "last_seen": datetime.now(),
     }
     return {"ok": True}
@@ -107,6 +116,7 @@ def data(lab_id: str = ""):
             "status": status,
             "watch_process": computer["watch_process"],
             "foreground_app": computer["foreground_app"],
+            "task_category": computer["task_category"],
             "last_seen": computer["last_seen"].strftime("%H:%M:%S"),
             "seconds_ago": int(seconds_ago),
         })

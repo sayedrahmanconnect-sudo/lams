@@ -26,7 +26,7 @@ REPORT_EVERY_SECONDS = 5
 # The dashboard everyone reports to. After deploying to Render, paste your own
 # address here, rebuild the .exe once, and setting up a lab computer becomes a
 # double-click with nothing to type.
-DASHBOARD_URL = "https://lams-dashboard.onrender.com"
+DASHBOARD_URL = "https://lams-dashboard-pvc4.onrender.com"
 DEFAULT_LAB = "comilla-cse-lab"
 DEFAULT_WATCH = "chrome.exe"
 
@@ -95,6 +95,7 @@ def first_time_setup(path):
             "lab_id": ask("Lab id          ", DEFAULT_LAB),
             "computer_name": ask("Computer name   ", socket.gethostname()),
             "watch_process": ask("Program to watch", DEFAULT_WATCH),
+            "watch_sites": ask("Off-task sites, comma separated (blank = don't check)", ""),
         }
     except EOFError:
         # No keyboard available (started by a script) - just use the defaults.
@@ -103,7 +104,13 @@ def first_time_setup(path):
             "lab_id": DEFAULT_LAB,
             "computer_name": socket.gethostname(),
             "watch_process": DEFAULT_WATCH,
+            "watch_sites": "",
         }
+
+    # Stored as a list, e.g. "youtube, netflix" -> ["youtube", "netflix"].
+    settings["watch_sites"] = [
+        site.strip() for site in settings["watch_sites"].split(",") if site.strip()
+    ]
 
     with open(path, "w") as f:
         json.dump(settings, f, indent=2)
@@ -134,6 +141,11 @@ def load_config():
     if not config.get("computer_name"):
         config["computer_name"] = socket.gethostname()
 
+    # watch_sites is optional too - an existing config.json from before this
+    # feature existed simply won't have it, and that means "don't check".
+    if not config.get("watch_sites"):
+        config["watch_sites"] = []
+
     return config
 
 
@@ -149,30 +161,60 @@ def is_process_running(process_name):
     return False
 
 
-def get_foreground_app():
+def get_foreground_window():
     """
-    The name of the application currently in front (the focused window).
+    The app name AND the window title of whatever is currently in front.
 
-    Only the application name is read - never the window title, never the
-    screen contents. Returns "unknown" if we cannot tell (locked screen, or
-    a moment when nothing is focused). Wrapped in try/except so a failure
-    here can never stop the reporting loop.
+    The title is only ever used locally, for a moment, to check it against
+    watch_sites (see task_category below) - it is never put in the report we
+    send to the dashboard. Returns ("unknown", "") if we cannot tell (locked
+    screen, or a moment when nothing is focused). Wrapped in try/except so a
+    failure here can never stop the reporting loop.
     """
     try:
         window = ctypes.windll.user32.GetForegroundWindow()
         if not window:
-            return "unknown"
+            return "unknown", ""
 
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(window, ctypes.byref(pid))
         if not pid.value:
-            return "unknown"
+            return "unknown", ""
 
         name = psutil.Process(pid.value).name()       # e.g. "chrome.exe"
         name = name.split(".")[0]                     # e.g. "chrome"
-        return name.capitalize()                      # e.g. "Chrome"
+
+        length = ctypes.windll.user32.GetWindowTextLengthW(window)
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(window, buffer, length + 1)
+
+        return name.capitalize(), buffer.value         # ("Chrome", "YouTube - Chrome")
     except Exception:
-        return "unknown"
+        return "unknown", ""
+
+
+# Only these apps' window titles are ever looked at - anything else (Word,
+# Explorer, a game, ...) is skipped, and its title is never read at all.
+BROWSER_APPS = ["chrome", "msedge", "firefox"]
+
+
+def task_category(app_name, window_title, watch_sites):
+    """
+    "on-task" or "off-task: <keyword>" - never the raw title.
+
+    Only checked when the foreground app is a browser AND watch_sites is not
+    empty. The window title is compared against each keyword in watch_sites
+    (case-insensitive) and then dropped - it never appears in the report sent
+    to the dashboard, only this one-word category does.
+    """
+    if not watch_sites or app_name.lower() not in BROWSER_APPS:
+        return "on-task"
+
+    title_lower = window_title.lower()
+    for keyword in watch_sites:
+        if keyword.lower() in title_lower:
+            return "off-task: " + keyword
+    return "on-task"
 
 
 def show_consent_notice(config):
@@ -187,6 +229,11 @@ def show_consent_notice(config):
     print("   - whether " + config["watch_process"] + " is running")
     print("   - the NAME of the application currently in front")
     print("   - the time of its last report")
+    if config["watch_sites"]:
+        print("   - whether the browser's window title matches one of:")
+        print("     " + ", ".join(config["watch_sites"]))
+        print("     (reported ONLY as on-task / off-task - the actual")
+        print("     window title itself is never sent anywhere)")
     print()
     print(" It does NOT record screen contents, keystrokes, window")
     print(" titles, files, or anything you type.")
@@ -206,12 +253,20 @@ def main():
     print()
 
     while True:
+        app_name, window_title = get_foreground_window()
+
+        # The window title is used right here, locally, to work out a category,
+        # and then it falls out of scope - it is never put into "report" below,
+        # so it can never be sent to the dashboard.
+        category = task_category(app_name, window_title, config["watch_sites"])
+
         report = {
             "lab_id": config["lab_id"],
             "computer_name": config["computer_name"],
             "watch_process": config["watch_process"],
             "watch_process_running": is_process_running(config["watch_process"]),
-            "foreground_app": get_foreground_app(),
+            "foreground_app": app_name,
+            "task_category": category,
         }
 
         # What this computer looks like right now, printed so I can show it live.
@@ -220,7 +275,8 @@ def main():
         else:
             local_status = "Online  (" + config["watch_process"] + " is not running)"
         print(time.strftime("%H:%M:%S") + "  " + local_status +
-              "  |  using: " + report["foreground_app"])
+              "  |  using: " + report["foreground_app"] +
+              "  |  " + report["task_category"])
 
         # TRAP: the dashboard may not be started yet, or may be turned off in the
         # middle of the demo. That must never crash the agent - warn and keep going.
