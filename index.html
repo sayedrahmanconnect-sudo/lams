@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Lab Activity Monitor</title>
+
+  <!-- All the styling for the page. Kept in this one file on purpose,
+       so the whole user interface can be explained from a single screen. -->
+  <style>
+    body {
+      font-family: Segoe UI, Arial, sans-serif;
+      background: #f2f4f7;
+      color: #1c2430;
+      margin: 0;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 4px 0; font-size: 30px; }
+    .subtitle { color: #5a6675; font-size: 15px; margin-bottom: 16px; }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .toolbar label { font-size: 15px; color: #3c4757; }
+    .toolbar select {
+      font-size: 15px; padding: 6px 10px; border-radius: 8px;
+      border: 1px solid #c3cbd6; background: #fff; color: #1c2430;
+    }
+    .counts { color: #5a6675; font-size: 15px; }
+
+    /* The cards sit in a grid that reflows on any screen size. */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #dde2e9;
+      border-left: 8px solid #9aa5b1;   /* the colour bar changes with status */
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .name { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+    .lab-tag {
+      display: inline-block; font-size: 12px; color: #5a6675;
+      background: #eef1f5; border-radius: 6px; padding: 2px 8px;
+      margin-bottom: 10px;
+    }
+
+    /* Status is always an ICON + a WORD, never colour on its own,
+       so it still reads clearly on a projector. */
+    .status { font-size: 19px; font-weight: bold; margin-bottom: 10px; }
+    .line { font-size: 15px; color: #3c4757; margin-top: 6px; }
+
+    .in-use  { border-left-color: #1e8e3e; }
+    .in-use  .status { color: #1e8e3e; }
+    .online  { border-left-color: #1a73e8; }
+    .online  .status { color: #1a73e8; }
+    .offline { border-left-color: #9aa5b1; background: #f7f8fa; }
+    .offline .status { color: #5a6675; }
+
+    .empty {
+      background: #fff; border: 1px dashed #c3cbd6; border-radius: 10px;
+      padding: 24px; color: #5a6675; font-size: 16px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>&#128421;&#65039; Lab Activity Monitor</h1>
+  <div class="subtitle">One shared dashboard - every lab reports here, filter by lab below.</div>
+
+  <div class="toolbar">
+    <label for="labFilter">Lab:</label>
+    <select id="labFilter">
+      <option value="">All labs</option>
+    </select>
+    <div class="counts" id="counts">Loading...</div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <script>
+    // Ask the server for the current computers and redraw the cards.
+    // Plain fetch + setInterval - no frameworks, no build step.
+
+    var currentLab = "";   // "" means "All labs"
+
+    function icon(status) {
+      if (status === "In Use")  return "🟢";   // green circle
+      if (status === "Online")  return "🔵";   // blue circle
+      return "⚫";                                   // black circle = offline
+    }
+
+    function cssClass(status) {
+      if (status === "In Use") return "in-use";
+      if (status === "Online") return "online";
+      return "offline";
+    }
+
+    function draw(data) {
+      var computers = data.computers;
+      var inUse = 0, online = 0, offline = 0;
+      var html = "";
+
+      for (var i = 0; i < computers.length; i++) {
+        var c = computers[i];
+
+        if (c.status === "In Use") { inUse++; }
+        else if (c.status === "Online") { online++; }
+        else { offline++; }
+
+        html += '<div class="card ' + cssClass(c.status) + '">';
+        html += '  <div class="name">&#128421;&#65039; ' + c.computer_name + '</div>';
+        html += '  <div class="lab-tag">' + c.lab_id + '</div>';
+        html += '  <div class="status">' + icon(c.status) + ' ' + c.status + '</div>';
+        html += '  <div class="line">&#128241; Using: ' + c.foreground_app + '</div>';
+        html += '  <div class="line">&#128190; ' + c.watch_process + ': ' +
+                     (c.watch_process_running ? "running" : "not running") + '</div>';
+        html += '  <div class="line">&#128337; Last report: ' + c.last_seen +
+                     ' (' + c.seconds_ago + 's ago)</div>';
+        html += '</div>';
+      }
+
+      if (computers.length === 0) {
+        html = '<div class="empty">No computer has reported yet' +
+               (currentLab ? ' for lab "' + currentLab + '"' : '') +
+               '. Start an agent and it will appear here within a few seconds.</div>';
+      }
+
+      document.getElementById("counts").textContent =
+        computers.length + " computer(s) - " +
+        inUse + " in use, " + online + " online, " + offline + " offline";
+      document.getElementById("cards").innerHTML = html;
+    }
+
+    function refreshData() {
+      var url = "/data" + (currentLab ? "?lab_id=" + encodeURIComponent(currentLab) : "");
+      fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(draw)
+        .catch(function () {
+          document.getElementById("counts").textContent =
+            "Cannot reach the dashboard server - is it still running?";
+        });
+    }
+
+    function refreshLabList() {
+      fetch("/labs")
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var select = document.getElementById("labFilter");
+          var previous = currentLab;
+
+          // Rebuild the option list, keeping the current selection if possible.
+          var html = '<option value="">All labs</option>';
+          for (var i = 0; i < data.labs.length; i++) {
+            var lab = data.labs[i];
+            html += '<option value="' + lab + '">' + lab + '</option>';
+          }
+          select.innerHTML = html;
+          select.value = previous;
+          if (select.value !== previous) {
+            // the previously selected lab no longer exists (rare) - fall back
+            currentLab = "";
+            select.value = "";
+          }
+        });
+    }
+
+    document.getElementById("labFilter").addEventListener("change", function (e) {
+      currentLab = e.target.value;
+      refreshData();
+    });
+
+    refreshLabList();
+    refreshData();
+    setInterval(refreshData, 3000);       // redraw cards every 3 seconds
+    setInterval(refreshLabList, 10000);   // pick up newly-seen labs every 10 seconds
+  </script>
+</body>
+</html>

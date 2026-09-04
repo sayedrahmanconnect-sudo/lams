@@ -1,0 +1,10 @@
+# Tells Render.com how to run the dashboard. Render reads this automatically
+# when you connect the GitHub repository - you should not have to type any
+# build or start command by hand.
+services:
+  - type: web
+    name: lams-dashboard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn dashboard:app --host 0.0.0.0 --port $PORT

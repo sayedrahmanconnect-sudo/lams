@@ -1,0 +1,6 @@
+{
+  "dashboard_url": "http://192.168.0.50:8000",
+  "lab_id": "comilla-cse-lab",
+  "computer_name": "PC-01",
+  "watch_process": "chrome.exe"
+}

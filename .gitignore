@@ -1,0 +1,9 @@
+# Build output from PyInstaller
+build/
+dist/
+*.spec
+
+# Each computer's own settings - never commit these
+config.json
+
+__pycache__/
