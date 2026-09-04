@@ -205,25 +205,49 @@ def get_site_name(app_name, window_title):
     if app_name.lower() not in BROWSER_APPS:
         return ""
 
-    if " - " not in window_title:
-        return ""
+    # Edge puts an invisible zero-width space inside its own name, so take
+    # that out first or none of the text below would ever match.
+    title = window_title.replace("​", "").strip()
 
-    site = window_title.rsplit(" - ", 1)[-1].strip()
+    # Windows adds the browser's own name to the end of EVERY browser window
+    # title ("... - Google Chrome"), and Edge adds the profile too
+    # ("... - Personal - Microsoft Edge"). Cut those off - they are the
+    # browser talking about itself, not the site being visited.
+    for suffix in [" - Google Chrome", " - Microsoft Edge", " - Mozilla Firefox",
+                   " - Chrome", " - Edge", " - Firefox"]:
+        if title.endswith(suffix):
+            title = title[:-len(suffix)].strip()
 
-    # Names the browser itself adds to every one of its windows (a New Tab
-    # page, an empty window, a private window) - not a real site name.
-    browser_labels = ["google chrome", "chrome", "microsoft edge", "msedge",
-                       "mozilla firefox", "firefox", "new tab"]
+    for profile in [" - Personal", " - Work"]:
+        if title.endswith(profile):
+            title = title[:-len(profile)].strip()
+
+    # What is left is the tab's own title. Sites usually end it with their
+    # own name ("Rick Astley - YouTube"), so the last piece is the site.
+    # A title with no dash at all is already just the site ("Facebook").
+    if " - " in title:
+        title = title.rsplit(" - ", 1)[-1].strip()
+
+    # Sites often put an unread count on the front ("(203) YouTube") - that
+    # is a personal number, not part of the site name, so drop it.
+    if title.startswith("(") and ")" in title:
+        counter = title[1:title.index(")")]
+        if counter.isdigit():
+            title = title[title.index(")") + 1:].strip()
+
+    # Things the browser calls its own blank windows - not a real site.
+    generic = ["new tab", "google chrome", "chrome", "microsoft edge",
+               "mozilla firefox", "firefox", "untitled"]
 
     # Safety checks - if any of these fail, show nothing rather than guess.
-    if not site or len(site) > MAX_SITE_NAME_LENGTH:
+    if not title or len(title) > MAX_SITE_NAME_LENGTH:
         return ""
-    if "@" in site:                 # looks like an email address slipped in
+    if "@" in title:                # looks like an email address slipped in
         return ""
-    if site.lower() in browser_labels:
+    if title.lower() in generic:
         return ""
 
-    return site
+    return title
 
 
 def show_consent_notice(config):

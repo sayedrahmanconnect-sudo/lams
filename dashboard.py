@@ -116,6 +116,7 @@ def data(lab_id: str = ""):
             "computer_name": computer["computer_name"],
             "status": status,
             "watch_process": computer["watch_process"],
+            "watch_process_running": computer["watch_process_running"],
             "foreground_app": computer["foreground_app"],
             "site_name": computer.get("site_name", ""),
             "last_seen": computer["last_seen"].strftime("%H:%M:%S"),
